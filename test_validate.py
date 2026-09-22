@@ -5,7 +5,13 @@ from unittest.mock import patch
 
 import pytest
 
-from validate import extract_issue_identifier, expected_target, fetch_issue_labels, parse_list, validate
+from validate import (
+    expected_target,
+    extract_issue_identifier,
+    fetch_issue_labels,
+    parse_list,
+    validate,
+)
 
 
 class Response:
@@ -26,7 +32,12 @@ class TestParseList:
 
 class TestExtractIssueIdentifier:
     def test_valid_branch(self):
-        assert extract_issue_identifier("chris/eng-1234-description", ["ENG", "MAN", "SUP"]) == "ENG-1234"
+        assert (
+            extract_issue_identifier(
+                "chris/eng-1234-description", ["ENG", "MAN", "SUP"]
+            )
+            == "ENG-1234"
+        )
 
     def test_invalid_branch(self):
         assert extract_issue_identifier("bad-branch", ["ENG", "MAN", "SUP"]) is None
@@ -37,13 +48,21 @@ class TestExpectedTarget:
         assert expected_target(["bug"], "dev", "release/v") == "dev"
 
     def test_release_label(self):
-        assert expected_target(["bug", "release:0.59.0"], "dev", "release/v") == "release/v0.59.0"
+        assert (
+            expected_target(["bug", "release:0.59.0"], "dev", "release/v")
+            == "release/v0.59.0"
+        )
 
     def test_case_insensitive_release_label(self):
-        assert expected_target(["RELEASE:0.59.0"], "dev", "release/v") == "release/v0.59.0"
+        assert (
+            expected_target(["RELEASE:0.59.0"], "dev", "release/v") == "release/v0.59.0"
+        )
 
     def test_duplicate_equivalent_release_labels(self):
-        assert expected_target(["release:0.59.0", "RELEASE:0.59.0"], "dev", "release/v") == "release/v0.59.0"
+        assert (
+            expected_target(["release:0.59.0", "RELEASE:0.59.0"], "dev", "release/v")
+            == "release/v0.59.0"
+        )
 
     def test_malformed_release_label(self):
         with pytest.raises(ValueError, match="Invalid release label"):
@@ -58,7 +77,14 @@ class TestFetchIssueLabels:
     @patch("urllib.request.urlopen")
     def test_success(self, urlopen):
         urlopen.return_value = Response(
-            {"data": {"issue": {"identifier": "ENG-1234", "labels": {"nodes": [{"name": "bug"}]}}}}
+            {
+                "data": {
+                    "issue": {
+                        "identifier": "ENG-1234",
+                        "labels": {"nodes": [{"name": "bug"}]},
+                    }
+                }
+            }
         )
         assert fetch_issue_labels("ENG-1234", "secret") == ["bug"]
 
@@ -87,11 +113,25 @@ class TestFetchIssueLabels:
 class TestValidate:
     @patch("validate.fetch_issue_labels", return_value=["bug"])
     def test_no_release_label_targets_dev(self, _fetch):
-        assert validate("chris/ENG-1234-description", "dev", "secret", "ENG,MAN,SUP", "dev", "release/v")
+        assert validate(
+            "chris/ENG-1234-description",
+            "dev",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
 
     @patch("validate.fetch_issue_labels", return_value=["bug"])
     def test_no_release_label_rejects_other_target(self, _fetch):
-        assert not validate("chris/ENG-1234-description", "main", "secret", "ENG,MAN,SUP", "dev", "release/v")
+        assert not validate(
+            "chris/ENG-1234-description",
+            "main",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
 
     @patch("validate.fetch_issue_labels", return_value=["release:0.59.0"])
     def test_release_label_targets_release(self, _fetch):
@@ -106,10 +146,19 @@ class TestValidate:
 
     @patch("validate.fetch_issue_labels", return_value=["release:0.59.0"])
     def test_release_label_rejects_dev(self, _fetch):
-        assert not validate("chris/ENG-1234-description", "dev", "secret", "ENG,MAN,SUP", "dev", "release/v")
+        assert not validate(
+            "chris/ENG-1234-description",
+            "dev",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
 
     def test_missing_access_key(self):
-        assert not validate("chris/ENG-1234-description", "dev", "", "ENG,MAN,SUP", "dev", "release/v")
+        assert not validate(
+            "chris/ENG-1234-description", "dev", "", "ENG,MAN,SUP", "dev", "release/v"
+        )
 
     def test_branch_without_issue_skips_lookup(self):
         assert validate("release/v0.59.0", "dev", "", "ENG,MAN,SUP", "dev", "release/v")

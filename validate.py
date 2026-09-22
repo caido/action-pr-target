@@ -6,7 +6,9 @@ import urllib.error
 import urllib.request
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
-ISSUE_QUERY = "query($id: String!) { issue(id: $id) { identifier labels { nodes { name } } } }"
+ISSUE_QUERY = (
+    "query($id: String!) { issue(id: $id) { identifier labels { nodes { name } } } }"
+)
 RELEASE_LABEL_PATTERN = re.compile(r"^release:([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE)
 
 
@@ -34,7 +36,9 @@ def fetch_issue_labels(identifier: str, access_key: str) -> list[str]:
         with urllib.request.urlopen(request, timeout=15) as response:
             payload = json.load(response)
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise ValueError(f"Unable to retrieve Linear issue '{identifier}': {error}") from error
+        raise ValueError(
+            f"Unable to retrieve Linear issue '{identifier}': {error}"
+        ) from error
 
     errors = payload.get("errors")
     if errors:
@@ -45,7 +49,9 @@ def fetch_issue_labels(identifier: str, access_key: str) -> list[str]:
         nodes = payload["data"]["issue"]["labels"]["nodes"]
         return [node["name"] for node in nodes]
     except (KeyError, TypeError):
-        raise ValueError(f"Linear issue '{identifier}' was not found or returned an invalid response") from None
+        raise ValueError(
+            f"Linear issue '{identifier}' was not found or returned an invalid response"
+        ) from None
 
 
 def expected_target(labels: list[str], default_target: str, release_prefix: str) -> str:
@@ -91,7 +97,9 @@ def validate(
         return False
 
     if target != expected:
-        print(f"::error::Linear issue '{identifier}' requires target '{expected}' instead of '{target}'.")
+        print(
+            f"::error::Linear issue '{identifier}' requires target '{expected}' instead of '{target}'."
+        )
         return False
 
     print(f"PR targets '{expected}' as required by Linear issue '{identifier}'.")
