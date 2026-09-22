@@ -1,0 +1,44 @@
+name: PR Target Validation
+description: Validate a PR target branch against its Linear issue release label.
+
+inputs:
+  branch:
+    required: true
+    description: PR head branch containing the Linear issue identifier.
+  target:
+    required: true
+    description: PR base branch to validate.
+  linear-access-key:
+    required: true
+    description: Linear API key used to retrieve issue labels.
+  teams:
+    required: false
+    default: "ENG,MAN,SUP"
+    description: Comma-separated list of allowed Linear team prefixes.
+  default-target:
+    required: false
+    default: dev
+    description: Required target when the Linear issue has no release label.
+  release-prefix:
+    required: false
+    default: release/v
+    description: Target branch prefix for release labels.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      with:
+        python-version: "3.12"
+
+    - name: Validate PR target
+      shell: bash
+      env:
+        BRANCH: ${{ inputs.branch }}
+        DEFAULT_TARGET: ${{ inputs.default-target }}
+        LINEAR_ACCESS_KEY: ${{ inputs.linear-access-key }}
+        RELEASE_PREFIX: ${{ inputs.release-prefix }}
+        TARGET: ${{ inputs.target }}
+        TEAMS: ${{ inputs.teams }}
+      run: python "${{ github.action_path }}/validate.py"
