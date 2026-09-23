@@ -3,10 +3,10 @@ description: Validate a PR target branch against its Linear issue release label.
 
 inputs:
   branch:
-    required: true
+    required: false
     description: PR head branch containing the Linear issue identifier.
   target:
-    required: true
+    required: false
     description: PR base branch to validate.
   linear-access-key:
     required: true
@@ -23,6 +23,16 @@ inputs:
     required: false
     default: release/v
     description: Target branch prefix for release labels.
+  dry-run:
+    required: false
+    default: "false"
+    description: Resolve the PR branches from pr-url and validate without needing branch or target inputs.
+  pr-url:
+    required: false
+    description: GitHub pull request URL to validate when dry-run is enabled.
+  github-token:
+    required: false
+    description: Token for reading the pull request. Defaults to the workflow's GITHUB_TOKEN.
 
 runs:
   using: composite
@@ -37,7 +47,10 @@ runs:
       env:
         BRANCH: ${{ inputs.branch }}
         DEFAULT_TARGET: ${{ inputs.default-target }}
+        DRY_RUN: ${{ inputs.dry-run }}
+        GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
         LINEAR_ACCESS_KEY: ${{ inputs.linear-access-key }}
+        PR_URL: ${{ inputs.pr-url }}
         RELEASE_PREFIX: ${{ inputs.release-prefix }}
         TARGET: ${{ inputs.target }}
         TEAMS: ${{ inputs.teams }}
