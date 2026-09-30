@@ -1,9 +1,11 @@
 # PR Target Validation
 
-Validates a pull request target branch against the release label on the Linear issue referenced by its head branch.
+Validates a pull request target branch against the [Linear release](https://linear.app/docs/releases) associated with the issue referenced by its head branch.
 
-- A Linear label named `X.Y.Z` or `release:X.Y.Z` requires `release/vX.Y.Z` by default.
-- No release label requires `dev` by default.
+- A release named `vX.Y.Z` requires `release/vX.Y.Z` by default. The release version field is not used.
+- An open release is preferred over a completed one. Canceled releases are ignored.
+- Release names that are not `vX.Y.Z` are ignored.
+- No matching release name requires `dev` by default.
 
 To manually validate a pull request, enable dry-run mode and provide its URL. The action reads the PR head and base branches from GitHub, then runs the same Linear validation:
 
@@ -33,10 +35,10 @@ The workflow's `GITHUB_TOKEN` is used to read PR details by default. If the PR i
 | --- | --- | --- | --- |
 | `branch` | no | | PR head branch containing the Linear issue identifier. Required unless `dry-run` is enabled. |
 | `target` | no | | PR base branch to validate. Required unless `dry-run` is enabled. |
-| `linear-access-key` | yes | | Linear API key used to retrieve issue labels. |
+| `linear-access-key` | yes | | Linear API key used to retrieve the issue's releases. |
 | `teams` | no | `ENG,MAN,SUP` | Allowed Linear team prefixes. |
-| `default-target` | no | `dev` | Target required when no release label exists. |
-| `release-prefix` | no | `release/v` | Prefix prepended to the release label version. |
+| `default-target` | no | `dev` | Target required when no release is named `vX.Y.Z`. |
+| `release-prefix` | no | `release/v` | Prefix prepended to the version in the release name. |
 | `dry-run` | no | `false` | Resolve the PR branches from `pr-url` and validate them. |
 | `pr-url` | no | | GitHub PR URL to validate when `dry-run` is enabled. |
 | `github-token` | no | workflow `GITHUB_TOKEN` | Token used to read the PR details in dry-run mode. |

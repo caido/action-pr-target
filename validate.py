@@ -7,12 +7,22 @@ import urllib.parse
 import urllib.request
 
 LINEAR_API_URL = "https://api.linear.app/graphql"
-ISSUE_QUERY = (
-    "query($id: String!) { issue(id: $id) { identifier labels { nodes { name } } } }"
-)
-RELEASE_LABEL_PATTERN = re.compile(
-    r"^(?:release:)?([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE
-)
+ISSUE_QUERY = """
+query($id: String!) {
+  issue(id: $id) {
+    identifier
+    releases(first: 2) {
+      nodes {
+        name
+        version
+        stage { type }
+      }
+      pageInfo { hasNextPage }
+    }
+  }
+}
+"""
+RELEASE_NAME_PATTERN = re.compile(r"^v([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE)
 PULL_REQUEST_PATH_PATTERN = re.compile(r"^/([^/]+)/([^/]+)/pulls?/([0-9]+)/?$")
 
 
@@ -27,7 +37,7 @@ def extract_issue_identifier(branch: str, teams: list[str]) -> str | None:
     return match.group(1).upper() if match else None
 
 
-def fetch_issue_labels(identifier: str, access_key: str) -> list[str]:
+def fetch_issue_releases(identifier: str, access_key: str) -> list[dict]:
     body = json.dumps({"query": ISSUE_QUERY, "variables": {"id": identifier}}).encode()
     request = urllib.request.Request(
         LINEAR_API_URL,
@@ -50,9 +60,24 @@ def fetch_issue_labels(identifier: str, access_key: str) -> list[str]:
         raise ValueError(f"Linear API error for '{identifier}': {messages}")
 
     try:
-        nodes = payload["data"]["issue"]["labels"]["nodes"]
-        return [node["name"] for node in nodes]
-    except (KeyError, TypeError):
+        issue = payload["data"]["issue"]
+        connection = issue["releases"]
+        if connection["pageInfo"]["hasNextPage"]:
+            raise ValueError(
+                f"Linear issue '{identifier}' has more than 2 associated releases"
+            )
+        releases = []
+        for node in connection["nodes"]:
+            stage = node.get("stage") or {}
+            releases.append(
+                {
+                    "name": node.get("name") or "",
+                    "version": node.get("version"),
+                    "stage": stage.get("type") if isinstance(stage, dict) else None,
+                }
+            )
+        return releases
+    except (KeyError, TypeError, AttributeError):
         raise ValueError(
             f"Linear issue '{identifier}' was not found or returned an invalid response"
         ) from None
@@ -114,26 +139,49 @@ def fetch_pull_request(
         ) from None
 
 
-def expected_target(labels: list[str], default_target: str, release_prefix: str) -> str:
-    release_labels = [
-        label
-        for label in labels
-        if label.lower().startswith("release:") or RELEASE_LABEL_PATTERN.fullmatch(label)
-    ]
-    if not release_labels:
+def release_name_version(name: object) -> str | None:
+    if not isinstance(name, str):
+        return None
+    match = RELEASE_NAME_PATTERN.fullmatch(name.strip())
+    return match.group(1) if match else None
+
+
+def format_releases(releases: list[dict]) -> str:
+    if not releases:
+        return "(none)"
+    parts = []
+    for release in releases:
+        name = release.get("name") or "(unnamed)"
+        version = release.get("version") or "(no version)"
+        stage = release.get("stage") or "unknown"
+        parts.append(f"{name} {version} [{stage}]")
+    return ", ".join(parts)
+
+
+def expected_target(
+    releases: list[dict], default_target: str, release_prefix: str
+) -> str:
+    candidates: list[tuple[str, str, str]] = []
+    for release in releases:
+        stage = str(release.get("stage") or "").lower()
+        if stage in {"canceled", "cancelled"}:
+            continue
+        name = str(release.get("name") or "")
+        version = release_name_version(name)
+        if version is None:
+            continue
+        candidates.append((version, stage, name))
+
+    selected = [item for item in candidates if item[1] != "completed"] or candidates
+    versions = {version for version, _, _ in selected}
+    if not versions:
         return default_target
-
-    versions: set[str] = set()
-    for label in release_labels:
-        match = RELEASE_LABEL_PATTERN.fullmatch(label)
-        if match is None:
-            raise ValueError(
-                f"Invalid release label '{label}'. Expected X.Y.Z or release:X.Y.Z"
-            )
-        versions.add(match.group(1))
-
     if len(versions) != 1:
-        raise ValueError(f"Conflicting release labels: {', '.join(release_labels)}")
+        details = ", ".join(
+            f"{name} ({version})"
+            for version, _, name in sorted(selected, key=lambda item: (item[0], item[2]))
+        )
+        raise ValueError(f"Conflicting releases: {details}")
 
     return f"{release_prefix}{versions.pop()}"
 
@@ -159,9 +207,9 @@ def validate(
         return False
 
     try:
-        labels = fetch_issue_labels(identifier, access_key)
-        print(f"Linear labels: {', '.join(labels) if labels else '(none)'}")
-        expected = expected_target(labels, default_target, release_prefix)
+        releases = fetch_issue_releases(identifier, access_key)
+        print(f"Linear releases: {format_releases(releases)}")
+        expected = expected_target(releases, default_target, release_prefix)
     except ValueError as error:
         print(f"::error::{error}")
         return False
