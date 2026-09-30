@@ -18,11 +18,11 @@ inputs:
   default-target:
     required: false
     default: dev
-    description: Required target when the Linear issue has no release version.
+    description: Required target when the Linear issue has no release named vX.Y.Z.
   release-prefix:
     required: false
     default: release/v
-    description: Target branch prefix prepended to the release version.
+    description: Target branch prefix prepended to the version in the release name.
   dry-run:
     required: false
     default: "false"

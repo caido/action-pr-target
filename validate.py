@@ -22,7 +22,7 @@ query($id: String!) {
   }
 }
 """
-VERSION_PATTERN = re.compile(r"^v?([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE)
+RELEASE_NAME_PATTERN = re.compile(r"^v([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE)
 PULL_REQUEST_PATH_PATTERN = re.compile(r"^/([^/]+)/([^/]+)/pulls?/([0-9]+)/?$")
 
 
@@ -139,10 +139,10 @@ def fetch_pull_request(
         ) from None
 
 
-def semver(version: object) -> str | None:
-    if not isinstance(version, str):
+def release_name_version(name: object) -> str | None:
+    if not isinstance(name, str):
         return None
-    match = VERSION_PATTERN.fullmatch(version.strip())
+    match = RELEASE_NAME_PATTERN.fullmatch(name.strip())
     return match.group(1) if match else None
 
 
@@ -166,10 +166,10 @@ def expected_target(
         stage = str(release.get("stage") or "").lower()
         if stage in {"canceled", "cancelled"}:
             continue
-        version = semver(release.get("version"))
+        name = str(release.get("name") or "")
+        version = release_name_version(name)
         if version is None:
             continue
-        name = str(release.get("name") or version)
         candidates.append((version, stage, name))
 
     selected = [item for item in candidates if item[1] != "completed"] or candidates

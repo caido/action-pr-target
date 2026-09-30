@@ -43,7 +43,9 @@ class TestExtractIssueIdentifier:
         assert extract_issue_identifier("bad-branch", ["ENG", "MAN", "SUP"]) is None
 
 
-def release(version: str | None, stage: str | None = "started", name: str = "Release"):
+def release(
+    name: str, stage: str | None = "started", version: str | None = None
+):
     return {"name": name, "version": version, "stage": stage}
 
 
@@ -51,29 +53,32 @@ class TestExpectedTarget:
     def test_no_release(self):
         assert expected_target([], "dev", "release/v") == "dev"
 
-    def test_release_version(self):
+    def test_release_name(self):
         assert (
-            expected_target([release("0.59.0")], "dev", "release/v")
+            expected_target([release("v0.59.0", version="0.59.0-rc.1")], "dev", "release/v")
             == "release/v0.59.0"
         )
 
-    def test_leading_v_is_stripped(self):
+    def test_version_field_is_ignored(self):
         assert (
-            expected_target([release("v0.59.0")], "dev", "release/v")
-            == "release/v0.59.0"
+            expected_target([release("v0.55.0", version="v0.58.0")], "dev", "release/v")
+            == "release/v0.55.0"
         )
 
-    def test_duplicate_equivalent_versions(self):
+    def test_name_without_v_prefix_is_ignored(self):
+        assert expected_target([release("0.59.0")], "dev", "release/v") == "dev"
+
+    def test_duplicate_equivalent_names(self):
         assert (
             expected_target(
-                [release("0.59.0"), release("v0.59.0", name="Same")],
+                [release("v0.59.0"), release("V0.59.0")],
                 "dev",
                 "release/v",
             )
             == "release/v0.59.0"
         )
 
-    def test_commit_sha_is_ignored(self):
+    def test_non_version_name_is_ignored(self):
         assert (
             expected_target([release("abc1234", stage="completed")], "dev", "release/v")
             == "dev"
@@ -83,8 +88,8 @@ class TestExpectedTarget:
         assert (
             expected_target(
                 [
-                    release("0.59.0", stage="completed", name="Previous"),
-                    release("0.60.0", stage="started", name="Current"),
+                    release("v0.59.0", stage="completed"),
+                    release("v0.60.0", stage="started"),
                 ],
                 "dev",
                 "release/v",
@@ -94,20 +99,20 @@ class TestExpectedTarget:
 
     def test_completed_release_used_when_it_is_the_only_version(self):
         assert (
-            expected_target([release("0.59.0", stage="completed")], "dev", "release/v")
+            expected_target([release("v0.59.0", stage="completed")], "dev", "release/v")
             == "release/v0.59.0"
         )
 
     def test_canceled_release_is_ignored(self):
         assert (
-            expected_target([release("0.59.0", stage="canceled")], "dev", "release/v")
+            expected_target([release("v0.59.0", stage="canceled")], "dev", "release/v")
             == "dev"
         )
 
     def test_conflicting_releases(self):
         with pytest.raises(ValueError, match="Conflicting releases"):
             expected_target(
-                [release("0.59.0", name="A"), release("0.60.0", name="B")],
+                [release("v0.59.0"), release("v0.60.0")],
                 "dev",
                 "release/v",
             )
@@ -186,7 +191,7 @@ class TestValidate:
 
     @patch(
         "validate.fetch_issue_releases",
-        return_value=[release("0.59.0")],
+        return_value=[release("v0.59.0", version="0.59.0-rc.1")],
     )
     def test_release_targets_release_branch(self, _fetch):
         assert validate(
@@ -200,7 +205,7 @@ class TestValidate:
 
     @patch(
         "validate.fetch_issue_releases",
-        return_value=[release("0.59.0")],
+        return_value=[release("v0.59.0", version="0.59.0-rc.1")],
     )
     def test_release_rejects_dev(self, _fetch):
         assert not validate(
