@@ -8,7 +8,7 @@ import pytest
 from validate import (
     expected_target,
     extract_issue_identifier,
-    fetch_issue_labels,
+    fetch_issue_releases,
     parse_list,
     validate,
 )
@@ -43,37 +43,77 @@ class TestExtractIssueIdentifier:
         assert extract_issue_identifier("bad-branch", ["ENG", "MAN", "SUP"]) is None
 
 
+def release(version: str | None, stage: str | None = "started", name: str = "Release"):
+    return {"name": name, "version": version, "stage": stage}
+
+
 class TestExpectedTarget:
-    def test_no_release_label(self):
-        assert expected_target(["bug"], "dev", "release/v") == "dev"
+    def test_no_release(self):
+        assert expected_target([], "dev", "release/v") == "dev"
 
-    def test_release_label(self):
+    def test_release_version(self):
         assert (
-            expected_target(["bug", "release:0.59.0"], "dev", "release/v")
+            expected_target([release("0.59.0")], "dev", "release/v")
             == "release/v0.59.0"
         )
 
-    def test_case_insensitive_release_label(self):
+    def test_leading_v_is_stripped(self):
         assert (
-            expected_target(["RELEASE:0.59.0"], "dev", "release/v") == "release/v0.59.0"
-        )
-
-    def test_duplicate_equivalent_release_labels(self):
-        assert (
-            expected_target(["release:0.59.0", "RELEASE:0.59.0"], "dev", "release/v")
+            expected_target([release("v0.59.0")], "dev", "release/v")
             == "release/v0.59.0"
         )
 
-    def test_malformed_release_label(self):
-        with pytest.raises(ValueError, match="Invalid release label"):
-            expected_target(["release:v0.59.0"], "dev", "release/v")
+    def test_duplicate_equivalent_versions(self):
+        assert (
+            expected_target(
+                [release("0.59.0"), release("v0.59.0", name="Same")],
+                "dev",
+                "release/v",
+            )
+            == "release/v0.59.0"
+        )
 
-    def test_conflicting_release_labels(self):
-        with pytest.raises(ValueError, match="Conflicting release labels"):
-            expected_target(["release:0.59.0", "release:0.60.0"], "dev", "release/v")
+    def test_commit_sha_is_ignored(self):
+        assert (
+            expected_target([release("abc1234", stage="completed")], "dev", "release/v")
+            == "dev"
+        )
+
+    def test_open_release_preferred_over_completed(self):
+        assert (
+            expected_target(
+                [
+                    release("0.59.0", stage="completed", name="Previous"),
+                    release("0.60.0", stage="started", name="Current"),
+                ],
+                "dev",
+                "release/v",
+            )
+            == "release/v0.60.0"
+        )
+
+    def test_completed_release_used_when_it_is_the_only_version(self):
+        assert (
+            expected_target([release("0.59.0", stage="completed")], "dev", "release/v")
+            == "release/v0.59.0"
+        )
+
+    def test_canceled_release_is_ignored(self):
+        assert (
+            expected_target([release("0.59.0", stage="canceled")], "dev", "release/v")
+            == "dev"
+        )
+
+    def test_conflicting_releases(self):
+        with pytest.raises(ValueError, match="Conflicting releases"):
+            expected_target(
+                [release("0.59.0", name="A"), release("0.60.0", name="B")],
+                "dev",
+                "release/v",
+            )
 
 
-class TestFetchIssueLabels:
+class TestFetchIssueReleases:
     @patch("urllib.request.urlopen")
     def test_success(self, urlopen):
         urlopen.return_value = Response(
@@ -81,12 +121,23 @@ class TestFetchIssueLabels:
                 "data": {
                     "issue": {
                         "identifier": "ENG-1234",
-                        "labels": {"nodes": [{"name": "bug"}]},
+                        "releases": {
+                            "nodes": [
+                                {
+                                    "name": "0.59.0",
+                                    "version": "0.59.0",
+                                    "stage": {"type": "started"},
+                                }
+                            ],
+                            "pageInfo": {"hasNextPage": False},
+                        },
                     }
                 }
             }
         )
-        assert fetch_issue_labels("ENG-1234", "secret") == ["bug"]
+        assert fetch_issue_releases("ENG-1234", "secret") == [
+            {"name": "0.59.0", "version": "0.59.0", "stage": "started"}
+        ]
 
         request = urlopen.call_args.args[0]
         assert request.headers["Authorization"] == "secret"
@@ -96,23 +147,23 @@ class TestFetchIssueLabels:
     def test_graphql_error(self, urlopen):
         urlopen.return_value = Response({"errors": [{"message": "Unauthorized"}]})
         with pytest.raises(ValueError, match="Unauthorized"):
-            fetch_issue_labels("ENG-1234", "secret")
+            fetch_issue_releases("ENG-1234", "secret")
 
     @patch("urllib.request.urlopen")
     def test_missing_issue(self, urlopen):
         urlopen.return_value = Response({"data": {"issue": None}})
         with pytest.raises(ValueError, match="not found"):
-            fetch_issue_labels("ENG-1234", "secret")
+            fetch_issue_releases("ENG-1234", "secret")
 
     @patch("urllib.request.urlopen", side_effect=urllib.error.URLError("offline"))
     def test_network_error(self, _urlopen):
         with pytest.raises(ValueError, match="Unable to retrieve"):
-            fetch_issue_labels("ENG-1234", "secret")
+            fetch_issue_releases("ENG-1234", "secret")
 
 
 class TestValidate:
-    @patch("validate.fetch_issue_labels", return_value=["bug"])
-    def test_no_release_label_targets_dev(self, _fetch):
+    @patch("validate.fetch_issue_releases", return_value=[])
+    def test_no_release_targets_dev(self, _fetch):
         assert validate(
             "chris/ENG-1234-description",
             "dev",
@@ -122,8 +173,8 @@ class TestValidate:
             "release/v",
         )
 
-    @patch("validate.fetch_issue_labels", return_value=["bug"])
-    def test_no_release_label_rejects_other_target(self, _fetch):
+    @patch("validate.fetch_issue_releases", return_value=[])
+    def test_no_release_rejects_other_target(self, _fetch):
         assert not validate(
             "chris/ENG-1234-description",
             "main",
@@ -133,8 +184,11 @@ class TestValidate:
             "release/v",
         )
 
-    @patch("validate.fetch_issue_labels", return_value=["release:0.59.0"])
-    def test_release_label_targets_release(self, _fetch):
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("0.59.0")],
+    )
+    def test_release_targets_release_branch(self, _fetch):
         assert validate(
             "chris/ENG-1234-description",
             "release/v0.59.0",
@@ -144,8 +198,11 @@ class TestValidate:
             "release/v",
         )
 
-    @patch("validate.fetch_issue_labels", return_value=["release:0.59.0"])
-    def test_release_label_rejects_dev(self, _fetch):
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("0.59.0")],
+    )
+    def test_release_rejects_dev(self, _fetch):
         assert not validate(
             "chris/ENG-1234-description",
             "dev",

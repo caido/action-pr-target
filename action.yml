@@ -1,5 +1,5 @@
 name: PR Target Validation
-description: Validate a PR target branch against its Linear issue release label.
+description: Validate a PR target branch against its associated Linear release.
 
 inputs:
   branch:
@@ -10,7 +10,7 @@ inputs:
     description: PR base branch to validate.
   linear-access-key:
     required: true
-    description: Linear API key used to retrieve issue labels.
+    description: Linear API key used to retrieve the issue's releases.
   teams:
     required: false
     default: "ENG,MAN,SUP"
@@ -18,11 +18,11 @@ inputs:
   default-target:
     required: false
     default: dev
-    description: Required target when the Linear issue has no release label.
+    description: Required target when the Linear issue has no release version.
   release-prefix:
     required: false
     default: release/v
-    description: Target branch prefix for release labels.
+    description: Target branch prefix prepended to the release version.
   dry-run:
     required: false
     default: "false"
