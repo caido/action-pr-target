@@ -11,7 +11,7 @@ ISSUE_QUERY = """
 query($id: String!) {
   issue(id: $id) {
     identifier
-    releases(first: 50) {
+    releases(first: 2) {
       nodes {
         name
         version
@@ -64,7 +64,7 @@ def fetch_issue_releases(identifier: str, access_key: str) -> list[dict]:
         connection = issue["releases"]
         if connection["pageInfo"]["hasNextPage"]:
             raise ValueError(
-                f"Linear issue '{identifier}' has more than 50 associated releases"
+                f"Linear issue '{identifier}' has more than 2 associated releases"
             )
         releases = []
         for node in connection["nodes"]:
