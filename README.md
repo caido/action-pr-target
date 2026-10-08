@@ -3,6 +3,7 @@
 Validates a pull request target branch against the [Linear release](https://linear.app/docs/releases) associated with the issue referenced by its head branch.
 
 - A release named `vX.Y.Z` requires `release/vX.Y.Z` by default. The release version field is not used.
+- If that release branch does not exist in the pull request's repository, the default target is required instead.
 - An open release is preferred over a completed one. Canceled releases are ignored.
 - Release names that are not `vX.Y.Z` are ignored.
 - No matching release name requires `dev` by default.
@@ -37,8 +38,8 @@ The workflow's `GITHUB_TOKEN` is used to read PR details by default. If the PR i
 | `target` | no | | PR base branch to validate. Required unless `dry-run` is enabled. |
 | `linear-access-key` | yes | | Linear API key used to retrieve the issue's releases. |
 | `teams` | no | `ENG,MAN,SUP` | Allowed Linear team prefixes. |
-| `default-target` | no | `dev` | Target required when no release is named `vX.Y.Z`. |
+| `default-target` | no | `dev` | Target required when no release is named `vX.Y.Z`, or when that release branch does not exist. |
 | `release-prefix` | no | `release/v` | Prefix prepended to the version in the release name. |
 | `dry-run` | no | `false` | Resolve the PR branches from `pr-url` and validate them. |
 | `pr-url` | no | | GitHub PR URL to validate when `dry-run` is enabled. |
-| `github-token` | no | workflow `GITHUB_TOKEN` | Token used to read the PR details in dry-run mode. |
+| `github-token` | no | workflow `GITHUB_TOKEN` | Token used to read PR details in dry-run mode and to check whether a release branch exists. |
