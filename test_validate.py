@@ -303,7 +303,7 @@ class TestValidate:
         "validate.fetch_issue_releases",
         return_value=[release("v0.60.0", stage="planned")],
     )
-    def test_missing_release_branch_allows_default_target(self, _fetch, _exists):
+    def test_missing_release_branch_allows_default_target(self, _fetch, _exists, capsys):
         assert validate(
             "dorian/ENG-1161-sqlite-compress",
             "dev",
@@ -311,6 +311,11 @@ class TestValidate:
             "ENG,MAN,SUP",
             "dev",
             "release/v",
+        )
+        assert (
+            "::warning::Linear issue 'ENG-1161' is assigned to release 'v0.60.0', "
+            "but branch 'release/v0.60.0' does not exist. Falling back to 'dev'."
+            in capsys.readouterr().out
         )
 
     @patch("validate.release_branch_exists", return_value=False)
@@ -318,7 +323,9 @@ class TestValidate:
         "validate.fetch_issue_releases",
         return_value=[release("v0.60.0", stage="planned")],
     )
-    def test_missing_release_branch_allows_configured_default(self, _fetch, _exists):
+    def test_missing_release_branch_allows_configured_default(
+        self, _fetch, _exists, capsys
+    ):
         assert validate(
             "dorian/ENG-1161-sqlite-compress",
             "develop",
@@ -327,6 +334,7 @@ class TestValidate:
             "develop",
             "release/v",
         )
+        assert "Falling back to 'develop'." in capsys.readouterr().out
 
     @patch("validate.release_branch_exists", return_value=False)
     @patch(

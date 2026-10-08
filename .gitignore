@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 .envrc
 .direnv
+
+.agents/skills
+.claude/skills/
+.cursor/skills/

@@ -83,6 +83,18 @@ def fetch_issue_releases(identifier: str, access_key: str) -> list[dict]:
         ) from None
 
 
+def github_get(url: str, access_token: str) -> bytes:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.read()
+
+
 def fetch_pull_request(
     pr_url: str, access_token: str, github_server_url: str = "https://github.com"
 ) -> tuple[str, str, str]:
@@ -111,17 +123,8 @@ def fetch_pull_request(
             f"{owner}/{repository}/pulls/{number}"
         )
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-    request = urllib.request.Request(api_url, headers=headers)
-
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = json.load(response)
+        payload = json.loads(github_get(api_url, access_token))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         raise ValueError(
             f"Unable to retrieve pull request '{pr_url}': {error}"
@@ -177,18 +180,11 @@ def release_branch_exists(
     repository_url = f"{api_root}/repos/{owner}/{repo}"
     quoted_branch = urllib.parse.quote(branch, safe="")
     branch_url = f"{repository_url}/branches/{quoted_branch}"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {access_token}",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
 
     def github_status(url: str) -> int:
-        request = urllib.request.Request(url, headers=headers)
         try:
-            with urllib.request.urlopen(request, timeout=15) as response:
-                response.read()
-                return 200
+            github_get(url, access_token)
+            return 200
         except urllib.error.HTTPError as error:
             return error.code
         except (urllib.error.URLError, TimeoutError) as error:
@@ -212,6 +208,22 @@ def release_branch_exists(
         f"Unable to check whether branch '{branch}' exists in '{repository}': "
         f"HTTP {branch_status}"
     )
+
+
+def release_names_for_branch(
+    releases: list[dict], branch: str, release_prefix: str
+) -> list[str]:
+    names = []
+    for release in releases:
+        stage = str(release.get("stage") or "").lower()
+        if stage in {"canceled", "cancelled"}:
+            continue
+        name = str(release.get("name") or "")
+        version = release_name_version(name)
+        if version is None or f"{release_prefix}{version}" != branch or name in names:
+            continue
+        names.append(name)
+    return names
 
 
 def expected_target(
@@ -273,9 +285,11 @@ def validate(
         if expected != default_target and not release_branch_exists(
             repository, expected, github_token, github_api_url
         ):
+            assigned = ", ".join(release_names_for_branch(releases, expected, release_prefix))
             print(
-                f"Release branch '{expected}' does not exist; "
-                f"required target falls back to '{default_target}'."
+                f"::warning::Linear issue '{identifier}' is assigned to release "
+                f"'{assigned}', but branch '{expected}' does not exist. "
+                f"Falling back to '{default_target}'."
             )
             expected = default_target
     except ValueError as error:
