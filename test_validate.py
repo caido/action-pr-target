@@ -9,7 +9,9 @@ from validate import (
     expected_target,
     extract_issue_identifier,
     fetch_issue_releases,
+    fetch_pull_request,
     parse_list,
+    release_branch_exists,
     validate,
 )
 
@@ -166,6 +168,83 @@ class TestFetchIssueReleases:
             fetch_issue_releases("ENG-1234", "secret")
 
 
+class TestReleaseBranchExists:
+    @patch("urllib.request.urlopen")
+    def test_existing_branch(self, urlopen):
+        urlopen.return_value = Response({})
+        assert release_branch_exists(
+            "caido/proxy", "release/v0.60.0", "token"
+        )
+
+        repository_request, branch_request = (
+            call.args[0] for call in urlopen.call_args_list
+        )
+        assert repository_request.full_url == "https://api.github.com/repos/caido/proxy"
+        assert (
+            branch_request.full_url
+            == "https://api.github.com/repos/caido/proxy/branches/release%2Fv0.60.0"
+        )
+        assert branch_request.headers["Authorization"] == "Bearer token"
+
+    @patch("urllib.request.urlopen")
+    def test_missing_branch(self, urlopen):
+        urlopen.side_effect = [
+            Response({}),
+            urllib.error.HTTPError(
+                "https://api.github.com/repos/caido/proxy/branches/release%2Fv0.60.0",
+                404,
+                "Not Found",
+                None,
+                None,
+            ),
+        ]
+        assert (
+            release_branch_exists("caido/proxy", "release/v0.60.0", "token") is False
+        )
+
+    @patch("urllib.request.urlopen")
+    def test_hidden_repository_is_not_a_missing_branch(self, urlopen):
+        urlopen.side_effect = urllib.error.HTTPError(
+            "https://api.github.com/repos/caido/proxy",
+            404,
+            "Not Found",
+            None,
+            None,
+        )
+        with pytest.raises(ValueError, match="Unable to check"):
+            release_branch_exists("caido/proxy", "release/v0.60.0", "token")
+
+    @patch("urllib.request.urlopen")
+    def test_github_error(self, urlopen):
+        urlopen.side_effect = [
+            Response({}),
+            urllib.error.HTTPError(
+                "https://api.github.com/repos/caido/proxy/branches/release%2Fv0.60.0",
+                500,
+                "Server Error",
+                None,
+                None,
+            ),
+        ]
+        with pytest.raises(ValueError, match="Unable to check"):
+            release_branch_exists("caido/proxy", "release/v0.60.0", "token")
+
+    def test_missing_token(self):
+        with pytest.raises(ValueError, match="GitHub token"):
+            release_branch_exists("caido/proxy", "release/v0.60.0", "")
+
+
+class TestFetchPullRequest:
+    @patch("urllib.request.urlopen")
+    def test_returns_branches_and_repository(self, urlopen):
+        urlopen.return_value = Response(
+            {"head": {"ref": "dorian/ENG-1161-sqlite-compress"}, "base": {"ref": "dev"}}
+        )
+        assert fetch_pull_request(
+            "https://github.com/caido/proxy/pull/12", "token"
+        ) == ("dorian/ENG-1161-sqlite-compress", "dev", "caido/proxy")
+
+
 class TestValidate:
     @patch("validate.fetch_issue_releases", return_value=[])
     def test_no_release_targets_dev(self, _fetch):
@@ -189,11 +268,12 @@ class TestValidate:
             "release/v",
         )
 
+    @patch("validate.release_branch_exists", return_value=True)
     @patch(
         "validate.fetch_issue_releases",
         return_value=[release("v0.59.0", version="0.59.0-rc.1")],
     )
-    def test_release_targets_release_branch(self, _fetch):
+    def test_release_targets_release_branch(self, _fetch, _exists):
         assert validate(
             "chris/ENG-1234-description",
             "release/v0.59.0",
@@ -203,13 +283,82 @@ class TestValidate:
             "release/v",
         )
 
+    @patch("validate.release_branch_exists", return_value=True)
     @patch(
         "validate.fetch_issue_releases",
         return_value=[release("v0.59.0", version="0.59.0-rc.1")],
     )
-    def test_release_rejects_dev(self, _fetch):
+    def test_release_rejects_dev(self, _fetch, _exists):
         assert not validate(
             "chris/ENG-1234-description",
+            "dev",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
+
+    @patch("validate.release_branch_exists", return_value=False)
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("v0.60.0", stage="planned")],
+    )
+    def test_missing_release_branch_allows_default_target(self, _fetch, _exists, capsys):
+        assert validate(
+            "dorian/ENG-1161-sqlite-compress",
+            "dev",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
+        assert (
+            "::warning::Linear issue 'ENG-1161' is assigned to release 'v0.60.0', "
+            "but branch 'release/v0.60.0' does not exist. Falling back to 'dev'."
+            in capsys.readouterr().out
+        )
+
+    @patch("validate.release_branch_exists", return_value=False)
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("v0.60.0", stage="planned")],
+    )
+    def test_missing_release_branch_allows_configured_default(
+        self, _fetch, _exists, capsys
+    ):
+        assert validate(
+            "dorian/ENG-1161-sqlite-compress",
+            "develop",
+            "secret",
+            "ENG,MAN,SUP",
+            "develop",
+            "release/v",
+        )
+        assert "Falling back to 'develop'." in capsys.readouterr().out
+
+    @patch("validate.release_branch_exists", return_value=False)
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("v0.60.0", stage="planned")],
+    )
+    def test_missing_release_branch_rejects_other_target(self, _fetch, _exists):
+        assert not validate(
+            "dorian/ENG-1161-sqlite-compress",
+            "main",
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+        )
+
+    @patch("validate.release_branch_exists", side_effect=ValueError("offline"))
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("v0.60.0", stage="planned")],
+    )
+    def test_release_branch_lookup_failure_rejects_target(self, _fetch, _exists):
+        assert not validate(
+            "dorian/ENG-1161-sqlite-compress",
             "dev",
             "secret",
             "ENG,MAN,SUP",

@@ -18,7 +18,7 @@ inputs:
   default-target:
     required: false
     default: dev
-    description: Required target when the Linear issue has no release named vX.Y.Z.
+    description: Required target when the Linear issue has no release named vX.Y.Z, or when that release branch does not exist.
   release-prefix:
     required: false
     default: release/v
@@ -32,7 +32,7 @@ inputs:
     description: GitHub pull request URL to validate when dry-run is enabled.
   github-token:
     required: false
-    description: Token for reading the pull request. Defaults to the workflow's GITHUB_TOKEN.
+    description: Token for reading the pull request and checking whether a release branch exists. Defaults to the workflow's GITHUB_TOKEN.
 
 runs:
   using: composite
@@ -48,6 +48,8 @@ runs:
         BRANCH: ${{ inputs.branch }}
         DEFAULT_TARGET: ${{ inputs.default-target }}
         DRY_RUN: ${{ inputs.dry-run }}
+        GITHUB_API_URL: ${{ github.api_url }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
         GITHUB_TOKEN: ${{ inputs.github-token || github.token }}
         LINEAR_ACCESS_KEY: ${{ inputs.linear-access-key }}
         PR_URL: ${{ inputs.pr-url }}

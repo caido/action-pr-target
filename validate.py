@@ -83,9 +83,21 @@ def fetch_issue_releases(identifier: str, access_key: str) -> list[dict]:
         ) from None
 
 
+def github_get(url: str, access_token: str) -> bytes:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    if access_token:
+        headers["Authorization"] = f"Bearer {access_token}"
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request, timeout=15) as response:
+        return response.read()
+
+
 def fetch_pull_request(
     pr_url: str, access_token: str, github_server_url: str = "https://github.com"
-) -> tuple[str, str]:
+) -> tuple[str, str, str]:
     parsed_url = urllib.parse.urlparse(pr_url)
     match = PULL_REQUEST_PATH_PATTERN.fullmatch(parsed_url.path)
     allowed_hosts = {"github.com", urllib.parse.urlparse(github_server_url).hostname}
@@ -111,17 +123,8 @@ def fetch_pull_request(
             f"{owner}/{repository}/pulls/{number}"
         )
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    }
-    if access_token:
-        headers["Authorization"] = f"Bearer {access_token}"
-    request = urllib.request.Request(api_url, headers=headers)
-
     try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            payload = json.load(response)
+        payload = json.loads(github_get(api_url, access_token))
     except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
         raise ValueError(
             f"Unable to retrieve pull request '{pr_url}': {error}"
@@ -132,7 +135,7 @@ def fetch_pull_request(
         target = payload["base"]["ref"]
         if not isinstance(branch, str) or not isinstance(target, str):
             raise TypeError
-        return branch, target
+        return branch, target, f"{owner}/{repository}"
     except (KeyError, TypeError):
         raise ValueError(
             f"Pull request '{pr_url}' was not found or returned an invalid response"
@@ -156,6 +159,71 @@ def format_releases(releases: list[dict]) -> str:
         stage = release.get("stage") or "unknown"
         parts.append(f"{name} {version} [{stage}]")
     return ", ".join(parts)
+
+
+def release_branch_exists(
+    repository: str,
+    branch: str,
+    access_token: str,
+    github_api_url: str = "https://api.github.com",
+) -> bool:
+    if not access_token:
+        raise ValueError("GitHub token is not configured.")
+
+    owner, separator, repo = repository.partition("/")
+    if not separator or not owner or not repo or "/" in repo:
+        raise ValueError(
+            f"Invalid GitHub repository '{repository}'. Expected 'owner/repository'."
+        )
+
+    api_root = github_api_url.rstrip("/")
+    repository_url = f"{api_root}/repos/{owner}/{repo}"
+    quoted_branch = urllib.parse.quote(branch, safe="")
+    branch_url = f"{repository_url}/branches/{quoted_branch}"
+
+    def github_status(url: str) -> int:
+        try:
+            github_get(url, access_token)
+            return 200
+        except urllib.error.HTTPError as error:
+            return error.code
+        except (urllib.error.URLError, TimeoutError) as error:
+            raise ValueError(
+                f"Unable to check whether branch '{branch}' exists in '{repository}': {error}"
+            ) from error
+
+    repository_status = github_status(repository_url)
+    if repository_status != 200:
+        raise ValueError(
+            f"Unable to check whether branch '{branch}' exists in '{repository}': "
+            f"HTTP {repository_status}"
+        )
+
+    branch_status = github_status(branch_url)
+    if branch_status == 404:
+        return False
+    if branch_status == 200:
+        return True
+    raise ValueError(
+        f"Unable to check whether branch '{branch}' exists in '{repository}': "
+        f"HTTP {branch_status}"
+    )
+
+
+def release_names_for_branch(
+    releases: list[dict], branch: str, release_prefix: str
+) -> list[str]:
+    names = []
+    for release in releases:
+        stage = str(release.get("stage") or "").lower()
+        if stage in {"canceled", "cancelled"}:
+            continue
+        name = str(release.get("name") or "")
+        version = release_name_version(name)
+        if version is None or f"{release_prefix}{version}" != branch or name in names:
+            continue
+        names.append(name)
+    return names
 
 
 def expected_target(
@@ -193,6 +261,10 @@ def validate(
     teams_raw: str,
     default_target: str,
     release_prefix: str,
+    *,
+    repository: str = "",
+    github_token: str = "",
+    github_api_url: str = "https://api.github.com",
 ) -> bool:
     print(f"PR head branch: {branch}")
     print(f"PR target branch: {target}")
@@ -210,6 +282,16 @@ def validate(
         releases = fetch_issue_releases(identifier, access_key)
         print(f"Linear releases: {format_releases(releases)}")
         expected = expected_target(releases, default_target, release_prefix)
+        if expected != default_target and not release_branch_exists(
+            repository, expected, github_token, github_api_url
+        ):
+            assigned = ", ".join(release_names_for_branch(releases, expected, release_prefix))
+            print(
+                f"::warning::Linear issue '{identifier}' is assigned to release "
+                f"'{assigned}', but branch '{expected}' does not exist. "
+                f"Falling back to '{default_target}'."
+            )
+            expected = default_target
     except ValueError as error:
         print(f"::error::{error}")
         return False
@@ -234,6 +316,8 @@ def main() -> None:
     pr_url = os.environ.get("PR_URL", "")
     github_token = os.environ.get("GITHUB_TOKEN", "")
     github_server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
+    github_api_url = os.environ.get("GITHUB_API_URL", "https://api.github.com")
+    repository = os.environ.get("GITHUB_REPOSITORY", "")
     teams = os.environ.get("TEAMS", "ENG,MAN,SUP")
     default_target = os.environ.get("DEFAULT_TARGET", "dev")
     release_prefix = os.environ.get("RELEASE_PREFIX", "release/v")
@@ -243,7 +327,9 @@ def main() -> None:
             print("::error::A PR URL is required when dry-run is enabled.")
             sys.exit(1)
         try:
-            branch, target = fetch_pull_request(pr_url, github_token, github_server_url)
+            branch, target, repository = fetch_pull_request(
+                pr_url, github_token, github_server_url
+            )
         except ValueError as error:
             print(f"::error::{error}")
             sys.exit(1)
@@ -256,7 +342,17 @@ def main() -> None:
         print("::error::No target branch provided.")
         sys.exit(1)
 
-    if not validate(branch, target, access_key, teams, default_target, release_prefix):
+    if not validate(
+        branch,
+        target,
+        access_key,
+        teams,
+        default_target,
+        release_prefix,
+        repository=repository,
+        github_token=github_token,
+        github_api_url=github_api_url,
+    ):
         sys.exit(1)
 
 
