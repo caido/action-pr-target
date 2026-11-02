@@ -22,7 +22,9 @@ query($id: String!) {
   }
 }
 """
-RELEASE_NAME_PATTERN = re.compile(r"^v([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE)
+RELEASE_NAME_PATTERN = re.compile(
+    r"^(?:Release\s+)?v([0-9]+\.[0-9]+\.[0-9]+)$", re.IGNORECASE
+)
 PULL_REQUEST_PATH_PATTERN = re.compile(r"^/([^/]+)/([^/]+)/pulls?/([0-9]+)/?$")
 
 

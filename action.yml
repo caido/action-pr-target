@@ -18,7 +18,7 @@ inputs:
   default-target:
     required: false
     default: dev
-    description: Required target when the Linear issue has no release named vX.Y.Z, or when that release branch does not exist.
+    description: Required target when the Linear issue has no release named vX.Y.Z or Release vX.Y.Z, or when that release branch does not exist.
   release-prefix:
     required: false
     default: release/v
