@@ -52,6 +52,19 @@ def release(
 
 
 class TestExpectedTarget:
+    @pytest.mark.parametrize("name", ["Release v0.60.0", "release V0.60.0", " v0.60.0 "])
+    def test_release_name_formats(self, name):
+        assert (
+            expected_target([release(name, version="0.60.0-rc.1")], "dev", "release/v")
+            == "release/v0.60.0"
+        )
+
+    @pytest.mark.parametrize(
+        "name", ["Release 0.60.0", "Next v0.60.0", "Release v0.60.0-rc.1"]
+    )
+    def test_unrecognized_release_names_are_ignored(self, name):
+        assert expected_target([release(name)], "dev", "release/v") == "dev"
+
     def test_no_release(self):
         assert expected_target([], "dev", "release/v") == "dev"
 
@@ -246,6 +259,33 @@ class TestFetchPullRequest:
 
 
 class TestValidate:
+    @pytest.mark.parametrize(
+        "exists, target", [(True, "release/v0.60.0"), (False, "dev")]
+    )
+    @patch("validate.release_branch_exists")
+    @patch(
+        "validate.fetch_issue_releases",
+        return_value=[release("Release v0.60.0", version="0.60.0")],
+    )
+    def test_eng_1717_release_target(self, _fetch, branch_exists, exists, target, capsys):
+        branch_exists.return_value = exists
+        assert validate(
+            "amr/eng-1717-support-environment-variables-in-match-replace-term-replacer",
+            target,
+            "secret",
+            "ENG,MAN,SUP",
+            "dev",
+            "release/v",
+            repository="caido/proxy-frontend",
+            github_token="token",
+        )
+        branch_exists.assert_called_once_with(
+            "caido/proxy-frontend", "release/v0.60.0", "token", "https://api.github.com"
+        )
+        assert (
+            "assigned to release 'Release v0.60.0'" in capsys.readouterr().out
+        ) == (not exists)
+
     @patch("validate.fetch_issue_releases", return_value=[])
     def test_no_release_targets_dev(self, _fetch):
         assert validate(
